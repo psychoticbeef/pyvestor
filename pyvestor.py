@@ -1,0 +1,211 @@
+#!/usr/bin/env python
+
+import urllib
+import urllib2
+import os
+import json as loli
+import csv
+import numpy as np
+from scipy.optimize import minimize
+from scipy.optimize import linprog
+from scipy.optimize import fmin
+from scipy.optimize import root
+from scipy.optimize import least_squares
+from scipy.optimize import leastsq
+from numpy import linalg as LA
+import pulp
+
+# https://www.de.vanguard/web/cf/professionell/model.json?paths=[['getProfileData'],['layerContent','de'],[['labels','labelsByPath','portConfig'],'de','produktart,detailansicht'],['detailviewData','de','etf',9507,'equity','portfolio']]&method=get
+
+# https://www.de.vanguard/web/cf/professionell/model.json?paths=%5B%5B%27getProfileData%27%5D%2C%5B%27layerContent%27%2C%27de%27%5D%2C%5B%5B%27labels%27%2C%27labelsByPath%27%2C%27portConfig%27%5D%2C%27de%27%2C%27produktart%2Cdetailansicht%27%5D%2C%5B%27detailviewData%27%2C%27de%27%2C%27etf%27%2C9524%2C%27equity%27%2C%27portfolio%27%5D%5D&method=get
+
+#9522 9520 9507 9504 9523 9524
+
+class Dist:
+    def __init__(self, name):
+        self.ratios = {}
+        self.vector = []
+        self.name = name
+
+    def getRatios(self):
+        return self.ratios
+
+    def verifySum(self):
+        s = 0;
+        for k, v in self.ratios.items():
+            s = s + v
+        return s
+
+    def addRatio(self, country, ratio):
+        if country == "Other":
+            return
+        if country == "Korea":
+            country = "South Korea"
+        self.ratios[country] = ratio
+
+    def vectorize(self, gdp):
+        # init weights with zeroes
+        self.vector = [0.0] * len(gdp)
+        for k, v in self.ratios.items():
+            self.vector[gdp.index(k)] = v
+        return np.asarray(self.vector)
+
+def make_dist(etf, out):
+        result = Dist(etf)
+        with open(out, "r") as content_file:
+            content = content_file.read()
+            js = loli.loads(content)
+            idx = js['jsonGraph']['detailviewData']['de']['etf'][str(etf)]['equity']['portfolio']['value']['countryExposure']
+            for k in idx:
+                result.addRatio(k['countryName'], k['fundMktPercent'])
+        return result
+
+def download_dist(etf, out):
+        domain = "https://www.de.vanguard/web/cf/professionell/model.json?"
+        #url = "paths=[['getProfileData'],['layerContent','de'],[['labels','labelsByPath','portConfig'],'de','produktart,detailansicht'],['detailviewData','de','etf',{0},'equity','portfolio']]&method=get".format(etf)
+        url = "paths=%5B%5B%27getProfileData%27%5D%2C%5B%27layerContent%27%2C%27de%27%5D%2C%5B%5B%27labels%27%2C%27labelsByPath%27%2C%27portConfig%27%5D%2C%27de%27%2C%27produktart%2Cdetailansicht%27%5D%2C%5B%27detailviewData%27%2C%27de%27%2C%27etf%27%2C{0}%2C%27equity%27%2C%27portfolio%27%5D%5D&method=get".format(etf)
+        print(url)
+        #url = urllib.quote(url)
+        #print(url)
+        response = urllib2.urlopen(domain + url)
+        json = response.read()
+        file = open(out, "w")
+        file.write(json)
+        file.close()
+
+def read_gdp(infile):
+    result = {}
+    with open(infile) as csvfile:
+        readCSV = csv.reader(csvfile, delimiter=';')
+        for row in readCSV:
+            result[row[0]] = int(row[1])
+    return result
+
+def fix_gdp(gdp, dists):
+    fixed_gdp = {}
+    for etf, o in dists.items():
+        for k, v in o.getRatios().items():
+            if k in gdp:
+                fixed_gdp[k] = gdp[k]
+    return fixed_gdp
+
+def percentage_gdp(gdp):
+    result = {}
+    total_gdp = float(sum(gdp.values()))
+    for k, v in gdp.items():
+        result[k] = v/total_gdp
+    return result
+
+def objective(x):
+    r = np.zeros(len(vectors_have[0]))
+    for i in range(len(vectors_have)):
+        r = r + ((x[i]) * vectors_have[i])
+    r = r/100
+    np.set_printoptions(suppress=True)
+    return LA.norm((vector_want - r), np.inf)
+    #return abs(LA.norm(vector_want - r, 1))
+
+# sum equals 1
+def constraint1(x):
+    return x.sum() - 100
+
+
+def main():
+    global vector_want
+    # can be gotten from the url
+    etfs = [9522, 9520, 9507, 9504, 9523, 9524, 9527, 9505]
+    names = ["asia pacific ex japan",
+            "developed europe",
+            "emerging markets",
+            "japan",
+            "north america",
+            "developed europe ex uk",
+            "developed world",
+            "all world"]
+    # manually extracted from wikipedia. too simple. only once / year.
+    gdp = read_gdp("gdp.csv")
+
+    # contains [etfId] => [country]:ratio
+    dists = {}
+    # download / read ETF data
+    for etf in etfs:
+        out = "%s.json" % etf
+        if not os.path.exists(out):
+            download_dist(etf, out)
+        dists[etf] = make_dist(etf, out)
+        #print(dists[etf].getRatios())
+        if not abs(dists[etf].verifySum() - 100.0) <= 1e-09 :
+            print("the sum of all countries is not 100pct! %s" % dists[etf].verifySum())
+            exit()
+    #print("hi")
+
+    # check if all countries are being found in gdp data. if not, there's a problem.
+    # e.g. inconsistent naming (see "Korea" or "Other")
+    for etf, o in dists.items():
+        for k in o.getRatios():
+             if not k in gdp:
+                 print("%s not found %s" % (k, etf))
+                 exit()
+
+    # remove all countries we cannot invest in from gdp data
+    fixed_gdp = fix_gdp(gdp, dists)
+    # calculate new gdp percentages ignoring countries we cannot invest in
+    # about 9% in 2019, based on 2018 data
+    adjusted_gdp = percentage_gdp(fixed_gdp)
+    sorted_vector = []
+    vector_want = []
+    # select an order for our items. we randomly picked size of gdp
+    # everyone needs to stick to that
+    for k in sorted( ((v,k) for k,v in adjusted_gdp.iteritems()), reverse=True):
+        sorted_vector.append(k[1])
+        vector_want.append(k[0]*100)
+        #print("%s\t\t\t%s" % (k[1], round(k[0]*100, 2)))
+    # some stats
+    total_gdp = sum(gdp.values())
+    total_fixed_gdp = sum(fixed_gdp.values())
+    print("total gdp: %s" % total_gdp)
+    print("total fixed gdp: %s" % total_fixed_gdp)
+    print("percentage: %s" % (float(total_fixed_gdp) / total_gdp))
+
+    # generate weights, ordered for all ETFs
+    vectors = {}
+    global vectors_have
+    vectors_have = []
+    for k, v in dists.items():
+        vectors[k] = v.vectorize(sorted_vector)
+        vectors_have.append(v.vectorize(sorted_vector))
+    #print(vectors)
+
+    x0 = np.zeros(0)
+    for i in range(len(vectors_have)):
+        x0 = np.append(x0, 0.0/len(vectors_have))
+    #print("want: %s" % vector_want)
+    #print("have: %s" % vectors_have) 
+    # fixme: initialize correct number
+    b = (0.0, 100.0)
+    bnds = (b, b, b, b, b, b, b, b)
+    con1 = {'type': 'eq', 'fun': constraint1}
+    cons = [con1]
+    sol = minimize(objective, x0, method='SLSQP', bounds=bnds, constraints=cons)
+    res = np.zeros(len(vectors_have[0]))
+    print(res)
+    for i in range(len(sol.x)):
+        tmp = (sol.x[i]/100) * vectors_have[i]
+        res = np.add(res, tmp)
+    print("%s: %s" % (sol, sol.x.sum()))
+
+    for i in range(len(etfs)):
+        print("%s %s" % (names[i], round(sol.x[i], 2)))
+    for i in range(len(sorted_vector)):
+        print("%s\t%s\t%s" % (sorted_vector[i], round(vector_want[i],2), round(res[i],2)))
+    #for i in range(len(etfs)):
+    #    print("%s %s" % (names[i], round(sol.x[i]*100, 2)))
+    #for i in range(len(sorted_vector)):
+    #    print("%s %s %s" % (sorted_vector[i], round(vector_want[i],2), result[i]))
+
+
+if __name__ == '__main__':
+    main()
+
+
+
