@@ -102,7 +102,7 @@ def objective(x):
         r = r + ((x[i]) * vectors_have[i])
     r = r/100
     np.set_printoptions(suppress=True)
-    return LA.norm((vector_want - r), np.inf)
+    return LA.norm((vector_want - r), 1)
     #return abs(LA.norm(vector_want - r, 1))
 
 # sum equals 1
@@ -112,16 +112,57 @@ def constraint1(x):
 
 def main():
     global vector_want
+    developed = [
+            "Canada",
+            "Italy",
+            "France",
+            "Ireland",
+            "Norway",
+            "Israel",
+            "Australia",
+            "Singapore",
+            "Germany",
+            "Belgium",
+            "Hong Kong",
+            "Spain",
+            "Netherlands",
+            "Denmark",
+            "Poland",
+            "Finland",
+            "United States",
+            "Sweden",
+            "Switzerland",
+            "New Zealand",
+            "Portugal",
+            "United Kingdom",
+            "Austria",
+            "Japan",
+            "South Korea"
+            ]
     # can be gotten from the url
-    etfs = [9522, 9520, 9507, 9504, 9523, 9524, 9527, 9505]
-    names = ["asia pacific ex japan",
-            "developed europe",
+    etfs = [
+            9522, 
+            #9520, 
+            9507, 
+            9504, 
+            #9523, 
+            9524, 
+            #9527, 
+            9505
+            ]
+    #etfs = [9522, 9520, 9507, 9504, 9523, 9524]
+    names = [
+            "asia pacific ex japan",
+            #"developed europe",
             "emerging markets",
             "japan",
-            "north america",
+            #"north america",
             "developed europe ex uk",
-            "developed world",
-            "all world"]
+            #"developed world",
+            "all world"
+            ]
+    for i in range(len(etfs)):
+        print("%s %s" % (etfs[i], names[i]))
     # manually extracted from wikipedia. too simple. only once / year.
     gdp = read_gdp("gdp.csv")
 
@@ -163,27 +204,36 @@ def main():
     # some stats
     total_gdp = sum(gdp.values())
     total_fixed_gdp = sum(fixed_gdp.values())
+    gdp_developed = 0
+    for country in developed:
+        gdp_developed = gdp_developed + fixed_gdp[country]
     print("total gdp: %s" % total_gdp)
     print("total fixed gdp: %s" % total_fixed_gdp)
+    print("gdp developed: %s (%s)" % (gdp_developed, 100*round(float(gdp_developed)/float(total_fixed_gdp),2)))
     print("percentage: %s" % (float(total_fixed_gdp) / total_gdp))
 
     # generate weights, ordered for all ETFs
     vectors = {}
     global vectors_have
     vectors_have = []
-    for k, v in dists.items():
-        vectors[k] = v.vectorize(sorted_vector)
-        vectors_have.append(v.vectorize(sorted_vector))
-    #print(vectors)
+    #for k, v in dists.items():
+    #    dist_vectorized = v.vectorize(sorted_vector)
+    #    vectors[k] = dist_vectorized
+    #    vectors_have.append(dist_vectorized)
+    for e in etfs:
+        v = dists[e]
+        dist_vectorized = v.vectorize(sorted_vector)
+        vectors[k] = dist_vectorized
+        vectors_have.append(dist_vectorized)
 
-    x0 = np.zeros(0)
+    x0 = np.zeros(len(vectors_have))
     for i in range(len(vectors_have)):
-        x0 = np.append(x0, 0.0/len(vectors_have))
+        x0[i] = 100.0/len(vectors_have)
     #print("want: %s" % vector_want)
     #print("have: %s" % vectors_have) 
     # fixme: initialize correct number
     b = (0.0, 100.0)
-    bnds = (b, b, b, b, b, b, b, b)
+    bnds = (b,)*len(vectors_have)
     con1 = {'type': 'eq', 'fun': constraint1}
     cons = [con1]
     sol = minimize(objective, x0, method='SLSQP', bounds=bnds, constraints=cons)
@@ -191,13 +241,21 @@ def main():
     print(res)
     for i in range(len(sol.x)):
         tmp = (sol.x[i]/100) * vectors_have[i]
+        print("i: %s s: %s v: %s t: %s" % (i, sol.x[i], vectors_have[i][1], tmp[1]))
         res = np.add(res, tmp)
+    print(res)
     print("%s: %s" % (sol, sol.x.sum()))
 
+    invest_dev_gdp = 0
     for i in range(len(etfs)):
-        print("%s %s" % (names[i], round(sol.x[i], 2)))
+        print("%s %s" % (names[i].rjust(23), round(sol.x[i], 2)))
     for i in range(len(sorted_vector)):
-        print("%s\t%s\t%s" % (sorted_vector[i], round(vector_want[i],2), round(res[i],2)))
+        if sorted_vector[i] in developed:
+            invest_dev_gdp = invest_dev_gdp + res[i]
+        print("%s\t%s\t%s\t%s\t%s" % (sorted_vector[i].rjust(20), round(vector_want[i],2), round(res[i],2), round(vector_want[i],2)-round(res[i],2), round((vector_want[i]/res[i]-1)*100,2)))
+
+    print("total: %s" % res.sum())
+    print("invest gdp developed: %s" % invest_dev_gdp)
     #for i in range(len(etfs)):
     #    print("%s %s" % (names[i], round(sol.x[i]*100, 2)))
     #for i in range(len(sorted_vector)):
@@ -206,6 +264,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
 
