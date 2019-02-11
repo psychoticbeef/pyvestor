@@ -322,7 +322,7 @@ def main():
     print tabulate(investment, headers=["Country", "GDP", "Invest", "Diff Abs", "Diff %"])
     print("")
 
-    print tabulate(sorted([(round(v*100, 2),k,round(investment_by_region[k],2),round(investment_by_region[k]-v*100,2),(round(investment_by_region[k]/(v*100),2))) for k,v in gdp_per_region.items()], reverse=True), headers=['GDP', 'Region', 'Invested', 'Diff Abs', 'Diff %'])
+    print tabulate(sorted([(round(v*100, 2),k,round(investment_by_region[k],2),round(investment_by_region[k]-v*100,2),(round(100*investment_by_region[k]/(v*100)-100,2))) for k,v in gdp_per_region.items()], reverse=True), headers=['GDP', 'Region', 'Invested', 'Diff Abs', 'Diff %'])
     print("")
 
     #print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
