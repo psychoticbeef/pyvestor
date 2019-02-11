@@ -14,6 +14,9 @@ from scipy.optimize import least_squares
 from scipy.optimize import leastsq
 from numpy import linalg as LA
 import pulp
+from tabulate import tabulate
+from collections import OrderedDict
+import operator
 
 # https://www.de.vanguard/web/cf/professionell/model.json?paths=[['getProfileData'],['layerContent','de'],[['labels','labelsByPath','portConfig'],'de','produktart,detailansicht'],['detailviewData','de','etf',9507,'equity','portfolio']]&method=get
 
@@ -26,6 +29,7 @@ class Dist:
         self.ratios = {}
         self.vector = []
         self.name = name
+        self.regions = {}
 
     def getRatios(self):
         return self.ratios
@@ -35,6 +39,17 @@ class Dist:
         for k, v in self.ratios.items():
             s = s + v
         return s
+
+    def addRegion(self, name, pct):
+        if not name in self.regions:
+            self.regions[name] = 0.0
+        self.regions[name] = self.regions[name] + pct
+
+    def verifyRegions(self):
+        total = 0
+        for k, v in self.regions.items():
+            total = total + v
+        assert(total == 100)
 
     def addRatio(self, country, ratio):
         if country == "Other":
@@ -52,13 +67,25 @@ class Dist:
 
 def make_dist(etf, out):
         result = Dist(etf)
+        regions = {}
         with open(out, "r") as content_file:
             content = content_file.read()
             js = loli.loads(content)
             idx = js['jsonGraph']['detailviewData']['de']['etf'][str(etf)]['equity']['portfolio']['value']['countryExposure']
             for k in idx:
-                result.addRatio(k['countryName'], k['fundMktPercent'])
-        return result
+                countryName = k['countryName']
+                if countryName == "Korea":
+                    countryName = "South Korea"
+                result.addRatio(countryName, k['fundMktPercent'])
+                if not countryName == 'Other':
+                    regionName = k['region']['regionName']
+                    if regionName == 'Other' or regionName == 'Middle East':
+                        regionName = 'Emerging Markets'
+                    if not regionName in regions:
+                        regions[regionName] = []
+                    regions[regionName].append(countryName)
+                    result.addRegion(regionName, k['fundMktPercent'])
+        return result, regions
 
 def download_dist(etf, out):
         domain = "https://www.de.vanguard/web/cf/professionell/model.json?"
@@ -103,12 +130,26 @@ def objective(x):
     r = r/100
     np.set_printoptions(suppress=True)
     return LA.norm((vector_want - r), 1)
-    #return abs(LA.norm(vector_want - r, 1))
 
 # sum equals 1
 def constraint1(x):
     return x.sum() - 100
 
+def constraint2(x):
+    return (-x[2]-x[7]*0.1) + 35
+
+def mergeDicts(dict1, dict2):
+    for k, v in dict2.items():
+        if k in dict1:
+            dict1[k] = dict1[k] + dict2[k]
+        else:
+            dict1[k] = dict2[k]
+
+def uniqueDict(dict1):
+    result = {}
+    for k, v in dict1.items():
+        result[k] = set(v)
+    return result
 
 def main():
     global vector_want
@@ -140,32 +181,34 @@ def main():
             "South Korea"
             ]
     # can be gotten from the url
-    etfs = [
-            9522, 
-            #9520, 
-            9507, 
-            9504, 
-            #9523, 
-            9524, 
-            #9527, 
-            9505
-            ]
+    etfs = OrderedDict([
+            (9522, 'Asia Pacific ex Japan'), 
+            (9520, 'Developed Europe'), 
+            (9507, 'Emerging Markets'), 
+            (9504, 'Japan'), 
+            (9523, 'North America'), 
+            (9524, 'Developed Europe ex U.K.'), 
+            (9527, 'Developed World'), 
+            (9505, 'All World')
+            ])
     #etfs = [9522, 9520, 9507, 9504, 9523, 9524]
     names = [
             "asia pacific ex japan",
-            #"developed europe",
+            "developed europe",
             "emerging markets",
             "japan",
-            #"north america",
+            "north america",
             "developed europe ex uk",
-            #"developed world",
+            "developed world",
             "all world"
             ]
-    for i in range(len(etfs)):
-        print("%s %s" % (etfs[i], names[i]))
+    print tabulate(sorted([(v,k) for k,v in etfs.items()]), headers=['Name', 'etfId'])
+    print("")
     # manually extracted from wikipedia. too simple. only once / year.
     gdp = read_gdp("gdp.csv")
 
+    # all regions (pacific, europe, emerging, ...)
+    all_regions = {}
     # contains [etfId] => [country]:ratio
     dists = {}
     # download / read ETF data
@@ -173,12 +216,16 @@ def main():
         out = "%s.json" % etf
         if not os.path.exists(out):
             download_dist(etf, out)
-        dists[etf] = make_dist(etf, out)
+        dists[etf], regions = make_dist(etf, out)
+        mergeDicts(all_regions, regions)
         #print(dists[etf].getRatios())
         if not abs(dists[etf].verifySum() - 100.0) <= 1e-09 :
             print("the sum of all countries is not 100pct! %s" % dists[etf].verifySum())
             exit()
     #print("hi")
+    all_regions = uniqueDict(all_regions)
+    print tabulate(all_regions, headers=all_regions.keys())
+    print("")
 
     # check if all countries are being found in gdp data. if not, there's a problem.
     # e.g. inconsistent naming (see "Korea" or "Other")
@@ -193,6 +240,19 @@ def main():
     # calculate new gdp percentages ignoring countries we cannot invest in
     # about 9% in 2019, based on 2018 data
     adjusted_gdp = percentage_gdp(fixed_gdp)
+    print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
+    print("")
+    # calculate gdp per region
+    gdp_per_region = {}
+    for region, countries in all_regions.items():
+        gdp_per_region[region] = 0.0
+        for country in countries:
+            gdp_per_region[region] = gdp_per_region[region] + adjusted_gdp[country]
+
+
+    print tabulate(sorted([(round(v*100, 2),k) for k,v in gdp_per_region.items()], reverse=True), headers=['Region', 'GDP'])
+    print("")
+
     sorted_vector = []
     vector_want = []
     # select an order for our items. we randomly picked size of gdp
@@ -207,10 +267,8 @@ def main():
     gdp_developed = 0
     for country in developed:
         gdp_developed = gdp_developed + fixed_gdp[country]
-    print("total gdp: %s" % total_gdp)
-    print("total fixed gdp: %s" % total_fixed_gdp)
-    print("gdp developed: %s (%s)" % (gdp_developed, 100*round(float(gdp_developed)/float(total_fixed_gdp),2)))
-    print("percentage: %s" % (float(total_fixed_gdp) / total_gdp))
+    print tabulate([[total_gdp, total_fixed_gdp, gdp_developed, round(float(total_fixed_gdp)*100/total_gdp,2)]], headers=["Total GDP (m$)", "Adjusted GDP (m$)", "GDP Developed (m$)", "Market Percentage"])
+    print("")
 
     # generate weights, ordered for all ETFs
     vectors = {}
@@ -229,26 +287,35 @@ def main():
     x0 = np.zeros(len(vectors_have))
     for i in range(len(vectors_have)):
         x0[i] = 100.0/len(vectors_have)
-    #print("want: %s" % vector_want)
-    #print("have: %s" % vectors_have) 
     # fixme: initialize correct number
     b = (0.0, 100.0)
     bnds = (b,)*len(vectors_have)
     con1 = {'type': 'eq', 'fun': constraint1}
-    cons = [con1]
+    con2 = {'type': 'ineq', 'fun': constraint2}
+    cons = [con1,con2]
     sol = minimize(objective, x0, method='SLSQP', bounds=bnds, constraints=cons)
     res = np.zeros(len(vectors_have[0]))
-    print(res)
     for i in range(len(sol.x)):
         tmp = (sol.x[i]/100) * vectors_have[i]
-        print("i: %s s: %s v: %s t: %s" % (i, sol.x[i], vectors_have[i][1], tmp[1]))
+        #print("i: %s s: %s v: %s t: %s" % (i, sol.x[i], vectors_have[i][1], tmp[1]))
         res = np.add(res, tmp)
-    print(res)
-    print("%s: %s" % (sol, sol.x.sum()))
+    #print(res)
+    #print("%s: %s" % (sol, sol.x.sum()))
 
     invest_dev_gdp = 0
-    for i in range(len(etfs)):
-        print("%s %s" % (names[i].rjust(23), round(sol.x[i], 2)))
+    #for i in range(len(etfs)):
+    #    etfs[i] = etfs[i] + (round(sol.x[i], 2))
+        #print("%s %s" % (names[i].rjust(23), round(sol.x[i], 2)))
+    i = 0
+    result = []
+    for k, v in etfs.items():
+        result.append([round(sol.x[i], 2), k, v])
+        i = i+1
+    result.sort(key=operator.itemgetter(0), reverse=True)
+    print tabulate(result, headers=["Percent", "etfId", "Name"])
+
+
+    exit()
     for i in range(len(sorted_vector)):
         if sorted_vector[i] in developed:
             invest_dev_gdp = invest_dev_gdp + res[i]
