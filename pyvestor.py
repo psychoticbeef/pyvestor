@@ -151,6 +151,12 @@ def uniqueDict(dict1):
         result[k] = set(v)
     return result
 
+def getRegionByCountry(regions, country_search):
+    for region, countries in regions.items():
+        for country in countries:
+            if country == country_search:
+                return region
+
 def main():
     global vector_want
     developed = [
@@ -191,19 +197,9 @@ def main():
             (9527, 'Developed World'), 
             (9505, 'All World')
             ])
-    #etfs = [9522, 9520, 9507, 9504, 9523, 9524]
-    names = [
-            "asia pacific ex japan",
-            "developed europe",
-            "emerging markets",
-            "japan",
-            "north america",
-            "developed europe ex uk",
-            "developed world",
-            "all world"
-            ]
-    print tabulate(sorted([(v,k) for k,v in etfs.items()]), headers=['Name', 'etfId'])
-    print("")
+    #print tabulate(sorted([(v,k) for k,v in etfs.items()]), headers=['Name', 'etfId'])
+    #print("")
+
     # manually extracted from wikipedia. too simple. only once / year.
     gdp = read_gdp("gdp.csv")
 
@@ -240,7 +236,7 @@ def main():
     # calculate new gdp percentages ignoring countries we cannot invest in
     # about 9% in 2019, based on 2018 data
     adjusted_gdp = percentage_gdp(fixed_gdp)
-    print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
+    #print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
     print("")
     # calculate gdp per region
     gdp_per_region = {}
@@ -249,9 +245,6 @@ def main():
         for country in countries:
             gdp_per_region[region] = gdp_per_region[region] + adjusted_gdp[country]
 
-
-    print tabulate(sorted([(round(v*100, 2),k) for k,v in gdp_per_region.items()], reverse=True), headers=['Region', 'GDP'])
-    print("")
 
     sorted_vector = []
     vector_want = []
@@ -313,16 +306,27 @@ def main():
         i = i+1
     result.sort(key=operator.itemgetter(0), reverse=True)
     print tabulate(result, headers=["Percent", "etfId", "Name"])
+    print("")
 
-
-    exit()
+    investment = []
+    investment_by_region = {}
     for i in range(len(sorted_vector)):
         if sorted_vector[i] in developed:
             invest_dev_gdp = invest_dev_gdp + res[i]
-        print("%s\t%s\t%s\t%s\t%s" % (sorted_vector[i].rjust(20), round(vector_want[i],2), round(res[i],2), round(vector_want[i],2)-round(res[i],2), round((vector_want[i]/res[i]-1)*100,2)))
+        r = getRegionByCountry(all_regions, sorted_vector[i])
+        if not r in investment_by_region:
+            investment_by_region[r] = 0.0
+        investment_by_region[r] = investment_by_region[r] + res[i]
+        investment.append([sorted_vector[i], round(vector_want[i],2), round(res[i],2), round(res[i]-vector_want[i],2), round((res[i]/vector_want[i])*100-100,2)])
 
-    print("total: %s" % res.sum())
-    print("invest gdp developed: %s" % invest_dev_gdp)
+    print tabulate(investment, headers=["Country", "GDP", "Invest", "Diff Abs", "Diff %"])
+    print("")
+
+    print tabulate(sorted([(round(v*100, 2),k,round(investment_by_region[k],2),round(investment_by_region[k]-v*100,2),(round(investment_by_region[k]/(v*100),2))) for k,v in gdp_per_region.items()], reverse=True), headers=['GDP', 'Region', 'Invested', 'Diff Abs', 'Diff %'])
+    print("")
+
+    #print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
+    print tabulate([[res.sum(), round(invest_dev_gdp,2)]], headers=["Total invested (%)", "Invested in Developed (%)"])
     #for i in range(len(etfs)):
     #    print("%s %s" % (names[i], round(sol.x[i]*100, 2)))
     #for i in range(len(sorted_vector)):
