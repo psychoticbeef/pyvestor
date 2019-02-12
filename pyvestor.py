@@ -109,27 +109,27 @@ def read_gdp(infile):
     return result
 
 def fix_gdp(gdp, dists):
-    fixed_gdp = {}
+    gdpFixed = {}
     for etf, o in dists.items():
         for k, v in o.getRatios().items():
             if k in gdp:
-                fixed_gdp[k] = gdp[k]
-    return fixed_gdp
+                gdpFixed[k] = gdp[k]
+    return gdpFixed
 
 def percentage_gdp(gdp):
     result = {}
-    total_gdp = float(sum(gdp.values()))
+    totalGdp = float(sum(gdp.values()))
     for k, v in gdp.items():
-        result[k] = v/total_gdp
+        result[k] = v/totalGdp
     return result
 
 def objective(x):
-    r = np.zeros(len(vectors_have[0]))
-    for i in range(len(vectors_have)):
-        r = r + ((x[i]) * vectors_have[i])
+    r = np.zeros(len(vectorsHave[0]))
+    for i in range(len(vectorsHave)):
+        r = r + ((x[i]) * vectorsHave[i])
     r = r/100
     np.set_printoptions(suppress=True)
-    return LA.norm((vector_want - r), 1)
+    return LA.norm((vectorWant - r), 1)**2
 
 # sum equals 1
 def constraint1(x):
@@ -157,35 +157,29 @@ def getRegionByCountry(regions, country_search):
             if country == country_search:
                 return region
 
+def getDeveloped(regions):
+    result = set()
+    for region, countries in regions.items():
+        if not region == 'Emerging Markets':
+            result = result | countries
+    return result
+
+def downloadEtfData(etfs):
+    allRegions = {}
+    dists = {}
+    for etf in etfs:
+        out = "%s.json" % etf
+        if not os.path.exists(out):
+            download_dist(etf, out)
+        dists[etf], regions = make_dist(etf, out)
+        mergeDicts(allRegions, regions)
+        if not abs(dists[etf].verifySum() - 100.0) <= 1e-09 :
+            print("the sum of all countries is not 100pct! %s" % dists[etf].verifySum())
+            exit()
+    return dists, allRegions
+
 def main():
-    global vector_want
-    developed = [
-            "Canada",
-            "Italy",
-            "France",
-            "Ireland",
-            "Norway",
-            "Israel",
-            "Australia",
-            "Singapore",
-            "Germany",
-            "Belgium",
-            "Hong Kong",
-            "Spain",
-            "Netherlands",
-            "Denmark",
-            "Poland",
-            "Finland",
-            "United States",
-            "Sweden",
-            "Switzerland",
-            "New Zealand",
-            "Portugal",
-            "United Kingdom",
-            "Austria",
-            "Japan",
-            "South Korea"
-            ]
+    global vectorWant
     # can be gotten from the url
     etfs = OrderedDict([
             (9507, 'Emerging Markets'), 
@@ -198,30 +192,16 @@ def main():
             (9524, 'Developed Europe ex U.K.'), 
             (9527, 'Developed World'), 
             ])
-    #print tabulate(sorted([(v,k) for k,v in etfs.items()]), headers=['Name', 'etfId'])
-    #print("")
-
     # manually extracted from wikipedia. too simple. only once / year.
     gdp = read_gdp("gdp.csv")
 
     # all regions (pacific, europe, emerging, ...)
-    all_regions = {}
+    allRegions = {}
     # contains [etfId] => [country]:ratio
-    dists = {}
-    # download / read ETF data
-    for etf in etfs:
-        out = "%s.json" % etf
-        if not os.path.exists(out):
-            download_dist(etf, out)
-        dists[etf], regions = make_dist(etf, out)
-        mergeDicts(all_regions, regions)
-        #print(dists[etf].getRatios())
-        if not abs(dists[etf].verifySum() - 100.0) <= 1e-09 :
-            print("the sum of all countries is not 100pct! %s" % dists[etf].verifySum())
-            exit()
+    dists, allRegions = downloadEtfData(etfs)
     #print("hi")
-    all_regions = uniqueDict(all_regions)
-    print tabulate(all_regions, headers=all_regions.keys())
+    allRegions = uniqueDict(allRegions)
+    print tabulate(allRegions, headers=allRegions.keys())
     print("")
 
     # check if all countries are being found in gdp data. if not, there's a problem.
@@ -233,70 +213,67 @@ def main():
                  exit()
 
     # remove all countries we cannot invest in from gdp data
-    fixed_gdp = fix_gdp(gdp, dists)
+    gdpFixed = fix_gdp(gdp, dists)
     # calculate new gdp percentages ignoring countries we cannot invest in
     # about 9% in 2019, based on 2018 data
-    adjusted_gdp = percentage_gdp(fixed_gdp)
-    #print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
+    gdpAdjusted = percentage_gdp(gdpFixed)
+    #print tabulate(sorted([(round(v*100, 2),k) for k,v in gdpAdjusted.items()], reverse=True), headers=['GDP', 'Country'])
     print("")
     # calculate gdp per region
-    gdp_per_region = {}
-    for region, countries in all_regions.items():
-        gdp_per_region[region] = 0.0
+    gdpPerRegion = {}
+    for region, countries in allRegions.items():
+        gdpPerRegion[region] = 0.0
         for country in countries:
-            gdp_per_region[region] = gdp_per_region[region] + adjusted_gdp[country]
+            gdpPerRegion[region] = gdpPerRegion[region] + gdpAdjusted[country]
 
 
-    sorted_vector = []
-    vector_want = []
+    vectorSorted = []
+    vectorWant = []
     # select an order for our items. we randomly picked size of gdp
     # everyone needs to stick to that
-    for k in sorted( ((v,k) for k,v in adjusted_gdp.iteritems()), reverse=True):
-        sorted_vector.append(k[1])
-        vector_want.append(k[0]*100)
+    for k in sorted( ((v,k) for k,v in gdpAdjusted.iteritems()), reverse=True):
+        vectorSorted.append(k[1])
+        vectorWant.append(k[0]*100)
         #print("%s\t\t\t%s" % (k[1], round(k[0]*100, 2)))
     # some stats
-    total_gdp = sum(gdp.values())
-    total_fixed_gdp = sum(fixed_gdp.values())
-    gdp_developed = 0
+    totalGdp = sum(gdp.values())
+    totalGdpFixed = sum(gdpFixed.values())
+    gdpDeveloped = 0
+    developed = getDeveloped(allRegions)
     for country in developed:
-        gdp_developed = gdp_developed + fixed_gdp[country]
-    print tabulate([[total_gdp, total_fixed_gdp, gdp_developed, round(float(total_fixed_gdp)*100/total_gdp,2)]], headers=["Total GDP (m$)", "Adjusted GDP (m$)", "GDP Developed (m$)", "Market Percentage"])
+        gdpDeveloped = gdpDeveloped + gdpFixed[country]
+    print tabulate([[totalGdp, totalGdpFixed, gdpDeveloped, round(float(totalGdpFixed)*100/totalGdp,2)]], headers=["Total GDP (m$)", "Adjusted GDP (m$)", "GDP Developed (m$)", "Market Percentage"])
     print("")
 
     # generate weights, ordered for all ETFs
     vectors = {}
-    global vectors_have
-    vectors_have = []
-    #for k, v in dists.items():
-    #    dist_vectorized = v.vectorize(sorted_vector)
-    #    vectors[k] = dist_vectorized
-    #    vectors_have.append(dist_vectorized)
+    global vectorsHave
+    vectorsHave = []
     for e in etfs:
         v = dists[e]
-        dist_vectorized = v.vectorize(sorted_vector)
-        vectors[k] = dist_vectorized
-        vectors_have.append(dist_vectorized)
+        distVectorized = v.vectorize(vectorSorted)
+        vectors[k] = distVectorized
+        vectorsHave.append(distVectorized)
 
-    x0 = np.zeros(len(vectors_have))
-    for i in range(len(vectors_have)):
-        x0[i] = 100.0/len(vectors_have)
+    x0 = np.zeros(len(vectorsHave))
+    for i in range(len(vectorsHave)):
+        x0[i] = 100.0/len(vectorsHave)
     # fixme: initialize correct number
     b = (0.0, 100.0)
-    bnds = (b,)*len(vectors_have)
+    bnds = (b,)*len(vectorsHave)
     con1 = {'type': 'eq', 'fun': constraint1}
     con2 = {'type': 'ineq', 'fun': constraint2}
     cons = [con1]
     sol = minimize(objective, x0, method='SLSQP', bounds=bnds, constraints=cons)
-    res = np.zeros(len(vectors_have[0]))
+    res = np.zeros(len(vectorsHave[0]))
     for i in range(len(sol.x)):
-        tmp = (sol.x[i]/100) * vectors_have[i]
-        #print("i: %s s: %s v: %s t: %s" % (i, sol.x[i], vectors_have[i][1], tmp[1]))
+        tmp = (sol.x[i]/100) * vectorsHave[i]
+        #print("i: %s s: %s v: %s t: %s" % (i, sol.x[i], vectorsHave[i][1], tmp[1]))
         res = np.add(res, tmp)
     #print(res)
     #print("%s: %s" % (sol, sol.x.sum()))
 
-    invest_dev_gdp = 0
+    totalInvestedInDevelopedGdp = 0
     #for i in range(len(etfs)):
     #    etfs[i] = etfs[i] + (round(sol.x[i], 2))
         #print("%s %s" % (names[i].rjust(23), round(sol.x[i], 2)))
@@ -310,28 +287,28 @@ def main():
     print("")
 
     investment = []
-    investment_by_region = {}
-    for i in range(len(sorted_vector)):
-        if sorted_vector[i] in developed:
-            invest_dev_gdp = invest_dev_gdp + res[i]
-        r = getRegionByCountry(all_regions, sorted_vector[i])
-        if not r in investment_by_region:
-            investment_by_region[r] = 0.0
-        investment_by_region[r] = investment_by_region[r] + res[i]
-        investment.append([sorted_vector[i], round(vector_want[i],2), round(res[i],2), round(res[i]-vector_want[i],2), round((res[i]/vector_want[i])*100-100,2)])
+    investmentByRegion = {}
+    for i in range(len(vectorSorted)):
+        if vectorSorted[i] in developed:
+            totalInvestedInDevelopedGdp = totalInvestedInDevelopedGdp + res[i]
+        r = getRegionByCountry(allRegions, vectorSorted[i])
+        if not r in investmentByRegion:
+            investmentByRegion[r] = 0.0
+        investmentByRegion[r] = investmentByRegion[r] + res[i]
+        investment.append([vectorSorted[i], round(vectorWant[i],2), round(res[i],2), round(res[i]-vectorWant[i],2), round((res[i]/vectorWant[i])*100-100,2)])
 
     print tabulate(investment, headers=["Country", "GDP", "Invest", "Diff Abs", "Diff %"])
     print("")
 
-    print tabulate(sorted([(round(v*100, 2),k,round(investment_by_region[k],2),round(investment_by_region[k]-v*100,2),(round(100*investment_by_region[k]/(v*100)-100,2))) for k,v in gdp_per_region.items()], reverse=True), headers=['GDP', 'Region', 'Invested', 'Diff Abs', 'Diff %'])
+    print tabulate(sorted([(round(v*100, 2),k,round(investmentByRegion[k],2),round(investmentByRegion[k]-v*100,2),(round(100*investmentByRegion[k]/(v*100)-100,2))) for k,v in gdpPerRegion.items()], reverse=True), headers=['GDP', 'Region', 'Invested', 'Diff Abs', 'Diff %'])
     print("")
 
-    #print tabulate(sorted([(round(v*100, 2),k) for k,v in adjusted_gdp.items()], reverse=True), headers=['GDP', 'Country'])
-    print tabulate([[res.sum(), round(invest_dev_gdp,2)]], headers=["Total invested (%)", "Invested in Developed (%)"])
+    #print tabulate(sorted([(round(v*100, 2),k) for k,v in gdpAdjusted.items()], reverse=True), headers=['GDP', 'Country'])
+    print tabulate([[res.sum(), round(totalInvestedInDevelopedGdp,2)]], headers=["Total invested (%)", "Invested in Developed (%)"])
     #for i in range(len(etfs)):
     #    print("%s %s" % (names[i], round(sol.x[i]*100, 2)))
-    #for i in range(len(sorted_vector)):
-    #    print("%s %s %s" % (sorted_vector[i], round(vector_want[i],2), result[i]))
+    #for i in range(len(vectorSorted)):
+    #    print("%s %s %s" % (vectorSorted[i], round(vectorWant[i],2), result[i]))
 
 
 if __name__ == '__main__':
