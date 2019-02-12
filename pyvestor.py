@@ -136,7 +136,7 @@ def constraint1(x):
     return x.sum() - 100
 
 def constraint2(x):
-    return (-x[2]-x[7]*0.1) + 35
+    return (-x[0]-x[1]) + 35#-x[2]*0.1-
 
 def mergeDicts(dict1, dict2):
     for k, v in dict2.items():
@@ -188,14 +188,15 @@ def main():
             ]
     # can be gotten from the url
     etfs = OrderedDict([
-            (9522, 'Asia Pacific ex Japan'), 
-            (9520, 'Developed Europe'), 
             (9507, 'Emerging Markets'), 
+            (666, 'Fake China Only'), 
+            #(9505, 'All World'),
+            (9522, 'Asia Pacific ex Japan'), 
+            #(9520, 'Developed Europe'), 
             (9504, 'Japan'), 
-            (9523, 'North America'), 
+            #(9523, 'North America'), 
             (9524, 'Developed Europe ex U.K.'), 
             (9527, 'Developed World'), 
-            (9505, 'All World')
             ])
     #print tabulate(sorted([(v,k) for k,v in etfs.items()]), headers=['Name', 'etfId'])
     #print("")
@@ -285,7 +286,7 @@ def main():
     bnds = (b,)*len(vectors_have)
     con1 = {'type': 'eq', 'fun': constraint1}
     con2 = {'type': 'ineq', 'fun': constraint2}
-    cons = [con1,con2]
+    cons = [con1]
     sol = minimize(objective, x0, method='SLSQP', bounds=bnds, constraints=cons)
     res = np.zeros(len(vectors_have[0]))
     for i in range(len(sol.x)):
