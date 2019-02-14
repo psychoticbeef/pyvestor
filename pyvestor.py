@@ -131,7 +131,6 @@ def objective(x):
     np.set_printoptions(suppress=True)
     return LA.norm((vectorWant - r), 1)**2
 
-# sum equals 1
 def constraint1(x):
     return x.sum() - 100
 
