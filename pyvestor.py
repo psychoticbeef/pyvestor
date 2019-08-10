@@ -184,11 +184,11 @@ def main():
             (9507, 'Emerging Markets'), 
             (666, 'Fake China Only'), 
             #(9505, 'All World'),
-            (9522, 'Asia Pacific ex Japan'), 
+            #(9522, 'Asia Pacific ex Japan'), 
             #(9520, 'Developed Europe'), 
-            (9504, 'Japan'), 
+            #(9504, 'Japan'), 
             #(9523, 'North America'), 
-            (9524, 'Developed Europe ex U.K.'), 
+            #(9524, 'Developed Europe ex U.K.'), 
             (9527, 'Developed World'), 
             ])
     # manually extracted from wikipedia. too simple. only once / year.
@@ -242,6 +242,10 @@ def main():
     for country in developed:
         gdpDeveloped = gdpDeveloped + gdpFixed[country]
     print tabulate([[totalGdp, totalGdpFixed, gdpDeveloped, round(float(totalGdpFixed)*100/totalGdp,2)]], headers=["Total GDP (m$)", "Adjusted GDP (m$)", "GDP Developed (m$)", "Market Percentage"])
+    print("")
+
+    gdpPercentageDeveloped = round(gdpDeveloped*100.0/totalGdpFixed,2)
+    print tabulate([[gdpPercentageDeveloped, 100-gdpPercentageDeveloped]], headers=["GDP Developed (%)", "GDP Emerging (%)"])
     print("")
 
     # generate weights, ordered for all ETFs
